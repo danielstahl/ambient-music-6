@@ -4,8 +4,8 @@ import net.soundmining.Generative.randomRange
 import net.soundmining.modular.ModularInstrument.StaticAudioBusInstrument
 import net.soundmining.modular.ModularSynth.{relativePercControl, sineControl, staticAudioBus, staticControl}
 import net.soundmining.modular.{ModularSynth, SynthPlayer}
-import net.soundmining.synth.Instrument.{EFFECT, TAIL_ACTION}
-import net.soundmining.synth.SuperColliderClient.{freeAll, loadDir}
+import net.soundmining.synth.Instrument.{EFFECT, ROOM_EFFECT, SOURCE, TAIL_ACTION}
+import net.soundmining.synth.SuperColliderClient.{freeAll, groupHead, groupTail, loadDir}
 import net.soundmining.synth.Utils.absoluteTimeToMillis
 import net.soundmining.synth.{EmptyPatch, Instrument, PatchPlayback, SuperColliderClient, SuperColliderReceiver}
 
@@ -22,6 +22,7 @@ object AmbientMusic6 {
   val synthPlayer = SynthPlayer(soundPlays = Map.empty, numberOfOutputBuses = 2, bufferedPlayback = false)
   var patchPlayback: PatchPlayback = PatchPlayback(patch = EmptyPatch, client = client)
   val superColliderReceiver: SuperColliderReceiver = SuperColliderReceiver(patchPlayback)
+  val WRITE_TO_SCORE = true
 
   implicit val random: Random = new Random()
 
@@ -110,7 +111,13 @@ object AmbientMusic6 {
 
       clean.getOutputBus.staticBus(output)
       val graph = clean.buildGraph(startTime, duration, clean.graph(Seq()))
-      client.send(client.newBundle(absoluteTimeToMillis(startTime), graph))
+
+      if (WRITE_TO_SCORE) {
+        graph.map(SuperColliderClient.newSynthRaw)
+          .foreach(message => synthPlayer.superColliderScore.addMessage(startTime, message))
+      } else {
+        client.send(client.newBundle(absoluteTimeToMillis(startTime), graph))
+      }
     }
 
     def playShortEffect(startTime: Double, duration: Double, effectOut: Int): StaticAudioBusInstrument = {
@@ -128,7 +135,13 @@ object AmbientMusic6 {
 
       reverb.getOutputBus.staticBus(effectOut)
       val graph = reverb.buildGraph(startTime, duration, reverb.graph(Seq()))
-      client.send(client.newBundle(absoluteTimeToMillis(startTime), graph))
+
+      if (WRITE_TO_SCORE) {
+        graph.map(SuperColliderClient.newSynthRaw)
+          .foreach(message => synthPlayer.superColliderScore.addMessage(startTime, message))
+      } else {
+        client.send(client.newBundle(absoluteTimeToMillis(startTime), graph))
+      }
 
       effectAudioBus
     }
@@ -144,18 +157,32 @@ object AmbientMusic6 {
 
       reverb.getOutputBus.staticBus(effectOut)
       val graph = reverb.buildGraph(startTime, duration, reverb.graph(Seq()))
-      client.send(client.newBundle(absoluteTimeToMillis(startTime), graph))
+      if(WRITE_TO_SCORE) {
+        graph.map(SuperColliderClient.newSynthRaw)
+          .foreach(message => synthPlayer.superColliderScore.addMessage(startTime, message))
+      } else {
+        client.send(client.newBundle(absoluteTimeToMillis(startTime), graph))
+      }
+
       effectAudioBus
     }
 
     def playPiece(start: Double = 0.0, reset: Boolean = true): Unit = {
       if (reset) client.resetClock()
 
+      if (WRITE_TO_SCORE) {
+        synthPlayer.superColliderScore.addMessage(0, groupHead(0, SOURCE.nodeId))
+        synthPlayer.superColliderScore.addMessage(0, groupTail(SOURCE.nodeId, EFFECT.nodeId))
+        synthPlayer.superColliderScore.addMessage(0, groupTail(EFFECT.nodeId, ROOM_EFFECT.nodeId))
+        synthPlayer.superColliderScore.addMessage(0, loadDir(SYNTH_DIR))
+      }
+
       val effectLen = 60.0 * 4.0
-      val effectBus1 = playLongEffect(start, effectLen, 0.6, 0, 0)
-      val effectBus2 = playLongEffect(start, effectLen, 0.6, 0, 0)
-      val effectBus3 = playLongEffect(start, effectLen, 0.6, 0, 0)
-      val effectBus4 = playShortEffect(start, effectLen, 0)
+
+      val effectBus1 = playLongEffect(start, effectLen, 0.6, 0, 2)
+      val effectBus2 = playLongEffect(start, effectLen, 0.6, 4, 6)
+      val effectBus3 = playLongEffect(start, effectLen, 0.6, 8, 10)
+      val effectBus4 = playShortEffect(start, effectLen, 12)
 
       val ui = UiModelBuilder(Seq("One", "Two", "Three", "Four"))
 
@@ -188,7 +215,7 @@ object AmbientMusic6 {
           .bankOfOsc(scaleSpects(note), overtoneAmp.amps(), phases.phases())
           .monoVolume(sineControl(0, amp()))
           .pan(staticControl(panFunc()))
-          .playWithDuration(currentTime, durationFunc(), outputBus = audioBus.getOutputBus.busValue.get, realOutput = false)
+          .playWithDuration(currentTime, durationFunc(), outputBus = audioBus.getOutputBus.busValue.get, realOutput = false, shouldWriteToScore = WRITE_TO_SCORE)
 
         inc.inc()
         overtoneAmp = OvertoneAmps(i => sieves(inc.curr() % sieves.length).isSieve(i), ampFuncs(inc.curr() % ampFuncs.length))
@@ -198,7 +225,7 @@ object AmbientMusic6 {
           .bankOfOsc(scaleSpects(note), overtoneAmp.amps(), phases.phases())
           .monoVolume(sineControl(0, amp()))
           .pan(staticControl(panFunc()))
-          .playWithDuration(currentTime, durationFunc(), outputBus = audioBus.getOutputBus.busValue.get, realOutput = false)
+          .playWithDuration(currentTime, durationFunc(), outputBus = audioBus.getOutputBus.busValue.get, realOutput = false, shouldWriteToScore = WRITE_TO_SCORE)
 
         synthPlayer()
           .pinkNoise(sineControl(0, amp()))
@@ -206,7 +233,7 @@ object AmbientMusic6 {
           .highPass(staticControl(scaleSpects(note).head))
           .monoVolume(sineControl(0, amp()))
           .pan(staticControl(panFunc() * -1))
-          .playWithDuration(currentTime, durationFunc(), outputBus = audioBus.getOutputBus.busValue.get, realOutput = false)
+          .playWithDuration(currentTime, durationFunc(), outputBus = audioBus.getOutputBus.busValue.get, realOutput = false, shouldWriteToScore = WRITE_TO_SCORE)
 
         inc.inc()
       }
@@ -219,7 +246,7 @@ object AmbientMusic6 {
           .bankOfOsc(scaleSpects(note), overtoneAmp.amps(), phases.phases())
           .monoVolume(relativePercControl(0.0, amp() * 0.6, 0.001, Left(Seq(4.0, -4.0))))
           .pan(staticControl(panFunc()))
-          .playWithDuration(currentTime, durationFunc(), outputBus = audioBus.getOutputBus.busValue.get, realOutput = false)
+          .playWithDuration(currentTime, durationFunc(), outputBus = audioBus.getOutputBus.busValue.get, realOutput = false, shouldWriteToScore = WRITE_TO_SCORE)
 
         inc.inc()
         overtoneAmp = OvertoneAmps(i => sieves(inc.curr() % sieves.length).isSieve(i), ampFuncs(inc.curr() % ampFuncs.length))
@@ -229,7 +256,7 @@ object AmbientMusic6 {
           .bankOfOsc(scaleSpects(note), overtoneAmp.amps(), phases.phases())
           .monoVolume(relativePercControl(0.0, amp() * 0.6, 0.001, Left(Seq(4.0, -4.0))))
           .pan(staticControl(panFunc()))
-          .playWithDuration(currentTime, durationFunc(), outputBus = audioBus.getOutputBus.busValue.get, realOutput = false)
+          .playWithDuration(currentTime, durationFunc(), outputBus = audioBus.getOutputBus.busValue.get, realOutput = false, shouldWriteToScore = WRITE_TO_SCORE)
 
         synthPlayer()
           .pinkNoise(sineControl(0, amp()))
@@ -237,7 +264,7 @@ object AmbientMusic6 {
           .highPass(staticControl(scaleSpects(note).head))
           .monoVolume(relativePercControl(0.0, amp() * 0.6, 0.001, Left(Seq(4.0, -4.0))))
           .pan(staticControl(panFunc() * -1))
-          .playWithDuration(currentTime, durationFunc(), outputBus = audioBus.getOutputBus.busValue.get, realOutput = false)
+          .playWithDuration(currentTime, durationFunc(), outputBus = audioBus.getOutputBus.busValue.get, realOutput = false, shouldWriteToScore = WRITE_TO_SCORE)
 
         inc.inc()
       }
@@ -321,6 +348,9 @@ object AmbientMusic6 {
         .generateSequence(start)
 
       PieceCanvas.displayUiModel(ui.uiModel())
+      if (WRITE_TO_SCORE) {
+        synthPlayer.superColliderScore.makeScore("ambientMusic6.txt")
+      }
     }
   }
 }
